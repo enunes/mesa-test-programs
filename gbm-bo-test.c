@@ -125,12 +125,6 @@ void InitGLES(void)
 	glUseProgram(program);
 }
 
-#define LOG(msg, ...) \
-	fprintf(\
-		stderr, "\n[%s (%s:%d)]\n"msg,\
-		__func__, __FILE__, __LINE__, ##__VA_ARGS__ \
-	)
-
 #define ALIGN_ON_POW2(n, align) ((n + align - 1) & ~(align - 1))
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
@@ -200,9 +194,17 @@ static void dump_mode(drmModeModeInfo *mode)
 	printf("\n");
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
 	putenv("EGL_LOG_LEVEL=warning"); putenv("MESA_DEBUG=1"); putenv("LIBGL_DEBUG=verbose");
+
+	int gpu_alloc = 0;
+
+	if (argc > 1) {
+		if (strcmp(argv[1], "gpu_alloc") == 0) {
+			gpu_alloc = 1;
+		}
+	}
 
 	int ret;
 	const char *hdmi_dev = "/dev/dri/card0";
@@ -274,34 +276,6 @@ int main(void)
 		drmModeFreeEncoder(encoder);
 	}
 
-	struct drm_mode_create_dumb create_request = {
-		.width  = chosen_resolution->hdisplay,
-		.height = chosen_resolution->vdisplay,
-		.bpp    = 32
-	};
-	ret = ioctl(hdmi_fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_request);
-	if (ret) {
-		LOG("Dumb Buffer Object Allocation request of %ux%u@%u failed : %s\n",
-				create_request.width, create_request.height, create_request.bpp, strerror(ret));
-		return -1;
-	}
-	printf("Dumb Buffer Object Allocation request of %ux%u@%u succeeded!\n",
-		create_request.width, create_request.height, create_request.bpp);
-
-
-	uint32_t fb_id;
-	ret = drmModeAddFB(
-			hdmi_fd, chosen_resolution->hdisplay, chosen_resolution->vdisplay,
-			24, 32, create_request.pitch, create_request.handle, &fb_id
-			);
-	if (ret) {
-		LOG("Could not add a framebuffer using drmModeAddFB : %s\n", strerror(ret));
-		return -1;
-	}
-
-	drmModeSetCrtc(hdmi_fd, encoder->crtc_id, fb_id, 0, 0,
-			&connector->connector_id, 1, chosen_resolution);
-
 	printf("opening %s\n", gpu_dev);
 	int const gpu_fd = open(gpu_dev, O_RDWR | O_CLOEXEC);
 	assert(gpu_fd >= 0);
@@ -309,41 +283,97 @@ int main(void)
 	gpu_gbm = gbm_create_device(gpu_fd);
 	assert(gpu_gbm != NULL);
 
-	struct drm_prime_handle prime_request = {
-		.handle = create_request.handle,
-		.flags  = DRM_CLOEXEC | DRM_RDWR,
-		.fd     = -1
-	};
+	int dma_buf_fd;
+	int stride;
+	uint32_t prime_handle;
+	struct gbm_bo *gpu_bo;
 
-	ret = ioctl(hdmi_fd, DRM_IOCTL_PRIME_HANDLE_TO_FD, &prime_request);
-	int const dma_buf_fd = prime_request.fd;
-	if (ret || dma_buf_fd < 0) {
-		printf("Could not export buffer : %s (%d) - FD : %d\n",
-			strerror(ret), ret, dma_buf_fd);
+	if (gpu_alloc) {
+		gpu_bo = gbm_bo_create(gpu_gbm,
+				chosen_resolution->hdisplay, chosen_resolution->vdisplay,
+				GBM_FORMAT_XRGB8888,
+				GBM_BO_USE_RENDERING | GBM_BO_USE_SCANOUT);
+
+		if (gpu_bo == NULL) {
+			printf("Could not create bo : %s (%d)\n",
+					strerror(errno), errno);
+			return -1;
+		}
+		dma_buf_fd = gbm_bo_get_fd(gpu_bo);
+		printf("[gpu] Exported buffer FD : %d\n", dma_buf_fd);
+
+		stride = gbm_bo_get_stride(gpu_bo);
+
+		ret = drmPrimeFDToHandle(hdmi_fd, dma_buf_fd, &prime_handle);
+		if (ret) {
+			printf("Could not import buffer : %s (%d) - FD : %d\n",
+					strerror(errno), errno, dma_buf_fd);
+			return -1;
+		}
+
+		printf("[display] Imported buffer FD : %d\n", dma_buf_fd);
+	}
+	else {
+		struct drm_mode_create_dumb create_request = {
+			.width  = chosen_resolution->hdisplay,
+			.height = chosen_resolution->vdisplay,
+			.bpp    = 32
+		};
+		ret = ioctl(hdmi_fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_request);
+		if (ret) {
+			printf("Dumb Buffer Object Allocation request of %ux%u@%u failed : %s\n",
+					create_request.width, create_request.height, create_request.bpp, strerror(ret));
+			return -1;
+		}
+		printf("Dumb Buffer Object Allocation request of %ux%u@%u succeeded!\n",
+				create_request.width, create_request.height, create_request.bpp);
+
+		struct drm_prime_handle prime_request = {
+			.handle = create_request.handle,
+			.flags  = DRM_CLOEXEC | DRM_RDWR,
+			.fd     = -1
+		};
+
+		ret = ioctl(hdmi_fd, DRM_IOCTL_PRIME_HANDLE_TO_FD, &prime_request);
+		dma_buf_fd = prime_request.fd;
+		if (ret || dma_buf_fd < 0) {
+			printf("Could not export buffer : %s (%d) - FD : %d\n",
+					strerror(ret), ret, dma_buf_fd);
+			return -1;
+		}
+		prime_handle = create_request.handle;
+		stride = create_request.pitch;
+		printf("[display] Exported buffer FD : %d\n", dma_buf_fd);
+
+		struct gbm_import_fd_data data;
+		data.fd = dma_buf_fd;
+		data.width  = chosen_resolution->hdisplay;
+		data.height = chosen_resolution->vdisplay;
+		data.stride = create_request.pitch;
+		data.format = GBM_FORMAT_XRGB8888;
+		//	data.format = GBM_FORMAT_ARGB8888;
+		gpu_bo = gbm_bo_import(gpu_gbm, GBM_BO_IMPORT_FD, &data, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
+		if (gpu_bo == NULL) {
+			printf("Could not import buffer : %s (%d) - FD : %d\n",
+					strerror(errno), errno, dma_buf_fd);
+			return -1;
+		}
+
+		printf("[gpu] Imported buffer FD : %d\n", dma_buf_fd);
+	}
+
+	uint32_t fb_id;
+	ret = drmModeAddFB(
+			hdmi_fd, chosen_resolution->hdisplay, chosen_resolution->vdisplay,
+			24, 32, stride, prime_handle, &fb_id
+			);
+	if (ret) {
+		printf("Could not add a framebuffer using drmModeAddFB : %s\n", strerror(ret));
 		return -1;
 	}
-	printf("Exported buffer FD %d\n", dma_buf_fd);
 
-	EGLImageKHR image;
-	struct gbm_bo *imported_bo;
-	GLuint fb, color_rb, depth_rb;
-
-	struct gbm_import_fd_data data;
-	data.fd = dma_buf_fd;
-	data.width  = chosen_resolution->hdisplay;
-	data.height = chosen_resolution->vdisplay;
-	data.stride = create_request.pitch;
-	data.format = GBM_FORMAT_XRGB8888;
-//	data.format = GBM_FORMAT_ARGB8888;
-	imported_bo = gbm_bo_import(gpu_gbm, GBM_BO_IMPORT_FD, &data, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
-
-	if (imported_bo == NULL) {
-		printf("Could not import buffer : %s (%d) - FD : %d\n",
-			strerror(errno), errno, dma_buf_fd);
-		return -1;
-	}
-
-	printf("Imported buffer FD : %d\n", dma_buf_fd);
+	drmModeSetCrtc(hdmi_fd, encoder->crtc_id, fb_id, 0, 0,
+			&connector->connector_id, 1, chosen_resolution);
 
 	EGLDisplay dpy;
 	dpy = eglGetDisplay(gpu_gbm);
@@ -384,10 +414,12 @@ int main(void)
 
 	eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx);
 
+	GLuint fb, color_rb, depth_rb;
 	glGenFramebuffers(1, &fb);
 	glBindFramebuffer(GL_FRAMEBUFFER_EXT, fb);
 
-	image = eglCreateImageKHR(dpy, NULL, EGL_NATIVE_PIXMAP_KHR, imported_bo, NULL);
+	EGLImageKHR image;
+	image = eglCreateImageKHR(dpy, NULL, EGL_NATIVE_PIXMAP_KHR, gpu_bo, NULL);
 
 	/* Set up render buffer... */
 	glGenRenderbuffers(1, &color_rb);
