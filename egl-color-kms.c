@@ -1,51 +1,25 @@
 /*
- * Copyright © 2011 Kristian Høgsberg
- * Copyright © 2011 Benjamin Franzke
- *
- * Permission to use, copy, modify, distribute, and sell this software and its
- * documentation for any purpose is hereby granted without fee, provided that
- * the above copyright notice appear in all copies and that both that copyright
- * notice and this permission notice appear in supporting documentation, and
- * that the name of the copyright holders not be used in advertising or
- * publicity pertaining to distribution of the software without specific,
- * written prior permission.  The copyright holders make no representations
- * about the suitability of this software for any purpose.  It is provided "as
- * is" without express or implied warranty.
- *
- * THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
- * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
- * EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY SPECIAL, INDIRECT OR
- * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
- * DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
- * OF THIS SOFTWARE.
- */
-
-/*
  * Reference: https://cgit.freedesktop.org/mesa/demos/tree/src/egl/opengl/eglkms.c?id=mesa-demos-8.3.0
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-
 #include <assert.h>
 #include <errno.h>
-
-#include <sys/ioctl.h>
-
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include <gbm.h>
-#include <epoxy/gl.h>
-#include <epoxy/egl.h>
-
+#include <GLES2/gl2.h>
+#include <EGL/egl.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <string.h>
 
-EGLDisplay display;
-EGLContext context;
-EGLSurface surface;
+extern EGLDisplay display;
+extern EGLSurface surface;
+
+void InitGLES(int width, int height);
+void Render(void);
 
 struct kms {
    drmModeConnector *connector;
@@ -103,124 +77,6 @@ setup_kms(int fd, struct kms *kms)
    return EGL_TRUE;
 }
 
-GLuint program;
-
-GLuint LoadShader(const char *name, GLenum type)
-{
-   FILE *f;
-   size_t size;
-   char *buff;
-   GLuint shader;
-   GLint compiled;
-   const GLchar *source[1];
-
-   assert((f = fopen(name, "r")) != NULL);
-
-   // get file size
-   fseek(f, 0, SEEK_END);
-   size = ftell(f);
-   fseek(f, 0, SEEK_SET);
-
-   assert((buff = malloc(size)) != NULL);
-   assert(fread(buff, 1, size, f) == size);
-   source[0] = buff;
-   fclose(f);
-   shader = glCreateShader(type);
-   glShaderSource(shader, 1, source, (GLint *)&size);
-   glCompileShader(shader);
-   free(buff);
-   glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
-   if (!compiled) {
-      GLint infoLen = 0;
-      glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen);
-      if (infoLen > 1) {
-         char *infoLog = malloc(infoLen);
-         glGetShaderInfoLog(shader, infoLen, NULL, infoLog);
-         fprintf(stderr, "Error compiling shader %s:\n%s\n", name, infoLog);
-         free(infoLog);
-      }
-      glDeleteShader(shader);
-      return 0;
-   }
-
-   return shader;
-}
-
-static void InitGLES(int width, int height)
-{
-	GLint linked;
-	GLuint vertexShader;
-	GLuint fragmentShader;
-	assert((vertexShader = LoadShader("egl-color.vert", GL_VERTEX_SHADER)) != 0);
-	assert((fragmentShader = LoadShader("egl-color.frag", GL_FRAGMENT_SHADER)) != 0);
-	assert((program = glCreateProgram()) != 0);
-	glAttachShader(program, vertexShader);
-	glAttachShader(program, fragmentShader);
-	glLinkProgram(program);
-	glGetProgramiv(program, GL_LINK_STATUS, &linked);
-	if (!linked) {
-		GLint infoLen = 0;
-		glGetProgramiv(program, GL_INFO_LOG_LENGTH, &infoLen);
-		if (infoLen > 1) {
-			char *infoLog = malloc(infoLen);
-			glGetProgramInfoLog(program, infoLen, NULL, infoLog);
-			fprintf(stderr, "Error linking program:\n%s\n", infoLog);
-			free(infoLog);
-		}
-		glDeleteProgram(program);
-		exit(1);
-	}
-
-	glClearColor(0, 0, 0, 0);
-	glViewport(0, 0, width/2, height/2);
-	//glEnable(GL_DEPTH_TEST);
-
-	glUseProgram(program);
-}
-
-
-void Render(void)
-{
-	GLfloat vertex[] = {
-		-1, -1, 0,
-		-1, 1, 0,
-		1, 1, 0,
-		1, -1, 0
-	};
-	GLfloat color[] = {
-		1, 0, 0, 1,
-		0, 1, 0, 1,
-		0, 0, 1, 1,
-	};
-	//GLuint index[] = {
-	//	0, 1, 2
-	//};
-
-	GLint position = glGetAttribLocation(program, "positionIn");
-	glEnableVertexAttribArray(position);
-	glVertexAttribPointer(position, 3, GL_FLOAT, 0, 0, vertex);
-
-	GLint colorIn = glGetAttribLocation(program, "colorIn");
-	glEnableVertexAttribArray(colorIn);
-	glVertexAttribPointer(colorIn, 4, GL_FLOAT, 0, 0, color);
-
-	assert(glGetError() == GL_NO_ERROR);
-
-	glClear(GL_COLOR_BUFFER_BIT
-			//| GL_DEPTH_BUFFER_BIT
-	       );
-	printf("%x\n", glGetError());
-	assert(glGetError() == GL_NO_ERROR);
-
-	//glDrawElements(GL_TRIANGLES, sizeof(index)/sizeof(GLuint), GL_UNSIGNED_INT, index);
-	glDrawArrays(GL_TRIANGLES, 0, 3);
-
-	assert(glGetError() == GL_NO_ERROR);
-
-	eglSwapBuffers(display, surface);
-
-}
-
 static const char device_name[] = "/dev/dri/card0";
 
 static const EGLint attribs[] = {
@@ -232,7 +88,7 @@ static const EGLint attribs[] = {
    EGL_NONE
 };
 
-int main(int argc, char *argv[])
+int main(void)
 {
    EGLConfig config;
    EGLint major, minor, n;
@@ -292,7 +148,7 @@ int main(int argc, char *argv[])
       EGL_CONTEXT_CLIENT_VERSION, 2,
       EGL_NONE
    };
-   context = eglCreateContext(display, &config[0], EGL_NO_CONTEXT, context_attribs);
+   EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, context_attribs);
    if (context == NULL) {
       fprintf(stderr, "failed to create context\n");
       ret = -1;
@@ -338,7 +194,7 @@ int main(int argc, char *argv[])
       goto free_saved_crtc;
    }
 
-   getchar();
+   sleep(1);
 
    ret = drmModeSetCrtc(fd, saved_crtc->crtc_id, saved_crtc->buffer_id,
                         saved_crtc->x, saved_crtc->y,
