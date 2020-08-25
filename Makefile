@@ -1,10 +1,8 @@
 LDLIBS+=-lEGL -lGLESv2 -lm -lgbm -lepoxy -lpng
-CFLAGS+=-Wall -Wextra -DMESA_EGL_NO_X11_HEADERS
+CFLAGS+=-Wall -Wextra -DEGL_NO_X11
 CFLAGS+= -g -Og $(shell pkg-config --cflags libdrm)
 LDLIBS+= $(shell pkg-config --libs libdrm) -lX11
 TARGETS+=egl-color-kms
-TARGETS+=egl-color-png
-TARGETS+=egl-color-x11
 
 all: $(TARGETS)
 

@@ -10,6 +10,8 @@ GLuint program;
 EGLDisplay display;
 EGLSurface surface;
 
+static GLuint opengl_vbo;
+
 static GLuint LoadShader(const char *name, GLenum type)
 {
 	FILE *f;
@@ -27,7 +29,7 @@ static GLuint LoadShader(const char *name, GLenum type)
 	fseek(f, 0, SEEK_SET);
 
 	assert((buff = malloc(size)) != NULL);
-	assert(fread(buff, 1, size, f) == size);
+	assert((int)fread(buff, 1, size, f) == (int)size);
 	source[0] = buff;
 	fclose(f);
 	shader = glCreateShader(type);
@@ -80,33 +82,38 @@ void InitGLES(int width, int height)
 	glViewport(0, 0, width, height);
 	//glEnable(GL_DEPTH_TEST);
 
+	glGenBuffers(1, &opengl_vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+
 	glUseProgram(program);
 }
 
 void Render(void)
 {
-	GLfloat vertex[] = {
-		-1, -1, 0,
-		-1, 1, 0,
-		1, 1, 0,
-		1, -1, 0
+	GLfloat buf_vbo[] = {
+		-0.99, -0.99, 0,             0.99, 0, 0, 0.99,
+		-0.99,  0.99, 0,             0, 0.99, 0, 0.99,
+		 0.99,  0.99, 0,             0, 0, 0.99, 0.99,
 	};
-	GLfloat color[] = {
-		1, 0, 0, 1,
-		0, 1, 0, 1,
-		0, 0, 1, 1,
+
+	GLfloat buf_vbo2[] = {
+		-1, -1, 0,             1, 0, 0, 1,
+		 1, -1, 0,             0, 1, 1, 1,
+		 1,  1, 0,             0, 0, 1, 1,
+
+// uncomment to fix issue (different size buffers)
+//		-1, -1, 0,             1, 0, 0, 1,
+//		 1, -1, 0,             0, 1, 1, 1,
+//		 1,  1, 0,             0, 0, 1, 1,
 	};
-	//GLuint index[] = {
-	//	0, 1, 2
-	//};
 
 	GLint position = glGetAttribLocation(program, "positionIn");
 	glEnableVertexAttribArray(position);
-	glVertexAttribPointer(position, 3, GL_FLOAT, 0, 0, vertex);
+	glVertexAttribPointer(position, 3, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void *) (0 * sizeof(float)));
 
 	GLint colorIn = glGetAttribLocation(program, "colorIn");
 	glEnableVertexAttribArray(colorIn);
-	glVertexAttribPointer(colorIn, 4, GL_FLOAT, 0, 0, color);
+	glVertexAttribPointer(colorIn, 4, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void *) (3 * sizeof(float)));
 
 	assert(glGetError() == GL_NO_ERROR);
 
@@ -117,6 +124,15 @@ void Render(void)
 	assert(glGetError() == GL_NO_ERROR);
 
 	//glDrawElements(GL_TRIANGLES, sizeof(index)/sizeof(GLuint), GL_UNSIGNED_INT, index);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(buf_vbo), buf_vbo, GL_STREAM_DRAW);
+
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+
+	// uncomment to fix issue (force new buffer generation)
+	//   glGenBuffers(1, &opengl_vbo);
+	//   glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+
+	glBufferData(GL_ARRAY_BUFFER, sizeof(buf_vbo2), buf_vbo2, GL_STREAM_DRAW);
 	glDrawArrays(GL_TRIANGLES, 0, 3);
 
 	assert(glGetError() == GL_NO_ERROR);
