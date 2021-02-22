@@ -85,28 +85,11 @@ void InitGLES(int width, int height)
 
 void Render(void)
 {
-	GLfloat vertex[] = {
-		-1, -1, 0,
-		-1, 1, 0,
-		1, 1, 0,
-		1, -1, 0
-	};
-	GLfloat color[] = {
-		1, 0, 0, 1,
-		0, 1, 0, 1,
-		0, 0, 1, 1,
-	};
-	//GLuint index[] = {
-	//	0, 1, 2
-	//};
-
 	GLint position = glGetAttribLocation(program, "positionIn");
 	glEnableVertexAttribArray(position);
-	glVertexAttribPointer(position, 3, GL_FLOAT, 0, 0, vertex);
 
 	GLint colorIn = glGetAttribLocation(program, "colorIn");
 	glEnableVertexAttribArray(colorIn);
-	glVertexAttribPointer(colorIn, 4, GL_FLOAT, 0, 0, color);
 
 	assert(glGetError() == GL_NO_ERROR);
 
@@ -116,8 +99,26 @@ void Render(void)
 	printf("%x\n", glGetError());
 	assert(glGetError() == GL_NO_ERROR);
 
-	//glDrawElements(GL_TRIANGLES, sizeof(index)/sizeof(GLuint), GL_UNSIGNED_INT, index);
-	glDrawArrays(GL_TRIANGLES, 0, 3);
+   srand(0);
+
+   assert(getenv("LIMIT"));
+   int limit = atoi(getenv("LIMIT"));
+   for (int i = 0; i < limit; i++) {
+      GLfloat vertex[] = {
+         -1 + 0.01 * (rand() % 100), -1 + 0.01 * (rand() % 100), 0,
+         -1 + 0.01 * (rand() % 100),  1 + 0.01 * (rand() % 100), 0,
+         1  + 0.01 * (rand() % 100),  1 + 0.01 * (rand() % 100), 0,
+         1  + 0.01 * (rand() % 100), -1 + 0.01 * (rand() % 100), 0
+      };
+      GLfloat color[] = {
+         1 + 0.01 * (rand() % 100), 0 + 0.01 * (rand() % 10), 0 + 0.01 * (rand() % 10), 1,
+         0 + 0.01 * (rand() % 100), 1 + 0.01 * (rand() % 10), 0 + 0.01 * (rand() % 10), 1,
+         0 + 0.01 * (rand() % 100), 0 + 0.01 * (rand() % 10), 1 + 0.01 * (rand() % 10), 1,
+      };
+      glVertexAttribPointer(position, 3, GL_FLOAT, 0, 0, vertex);
+      glVertexAttribPointer(colorIn, 4, GL_FLOAT, 0, 0, color);
+      glDrawArrays(GL_TRIANGLES, 0, 3);
+   }
 
 	assert(glGetError() == GL_NO_ERROR);
 
