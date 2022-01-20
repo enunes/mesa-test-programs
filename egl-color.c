@@ -89,12 +89,22 @@ void Render(void)
 		-1, -1, 0,
 		-1, 1, 0,
 		1, 1, 0,
-		1, -1, 0
+		1, -1, 0,
+
+		-0.5, -0.7, 0,
+		0.5, -0.7, 0,
+		0.5, 0.7, 0,
 	};
 	GLfloat color[] = {
 		1, 0, 0, 1,
 		0, 1, 0, 1,
 		0, 0, 1, 1,
+		1, 1, 1, 1,
+
+		1, 0, 0, 1,
+		0, 1, 0, 1,
+		0, 0, 1, 1,
+		1, 1, 1, 1,
 	};
 	//GLuint index[] = {
 	//	0, 1, 2
@@ -121,5 +131,29 @@ void Render(void)
 
 	assert(glGetError() == GL_NO_ERROR);
 
+	if (!getenv("NO_PRESERVED")) {
+		eglSurfaceAttrib(display, surface, EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED);
+		assert(eglGetError() == EGL_SUCCESS);
+	}
+	eglSwapBuffers(display, surface);
+
+	glDrawArrays(GL_TRIANGLES, 1, 3);
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	if (!getenv("NO_PRESERVED")) {
+		eglSurfaceAttrib(display, surface, EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED);
+		assert(eglGetError() == EGL_SUCCESS);
+	}
+	eglSwapBuffers(display, surface);
+
+	glDrawArrays(GL_TRIANGLES, 4, 3);
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	if (!getenv("NO_PRESERVED")) {
+		eglSurfaceAttrib(display, surface, EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED);
+		assert(eglGetError() == EGL_SUCCESS);
+	}
 	eglSwapBuffers(display, surface);
 }

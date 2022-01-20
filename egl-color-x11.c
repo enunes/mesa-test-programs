@@ -52,7 +52,7 @@ void RenderTargetInit(void)
 	EGLConfig config;
 	EGLint numConfigs;
 	const EGLint configAttribs[] = {
-		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+		EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_SWAP_BEHAVIOR_PRESERVED_BIT,
 		EGL_RED_SIZE, 8,
 		EGL_GREEN_SIZE, 8,
 		EGL_BLUE_SIZE, 8,
